@@ -234,6 +234,69 @@ class DobotApiDashboard(DobotApi):
             parts.append(f"{k}={self._fmt(v)}")
         return f"{name}(" + ",".join(parts) + ")"
 
+    def _parse_script_names(self, response):
+        if not response:
+            return []
+
+        quoted = re.findall(r'"([^"\n]+)"', response)
+        if quoted:
+            return sorted(set(quoted))
+
+        bare = re.findall(r"[A-Za-z_][A-Za-z0-9_\-.]*", response)
+        blacklist = {
+            "OK",
+            "ERR",
+            "ErrorID",
+            "GetScriptList",
+            "GetProgramList",
+            "GetProjectList",
+            "GetRoutineList",
+            "RunScript",
+        }
+        return sorted({token for token in bare if token not in blacklist})
+
+    def ListScripts(self):
+        """
+        Try to list available scripts/routines from robot controller.
+        Returns:
+            dict: {
+                "command": str,
+                "scripts": list[str],
+                "raw": str
+            }
+        Notes:
+            Different firmware variants expose different command names.
+            This method probes several common candidates.
+        """
+        candidate_commands = [
+            "GetScriptList()",
+            "GetProgramList()",
+            "GetProjectList()",
+            "GetRoutineList()",
+        ]
+
+        best_raw = ""
+        best_command = ""
+        for command in candidate_commands:
+            raw = self.sendRecvMsg(command)
+            names = self._parse_script_names(raw)
+            if names:
+                return {
+                    "command": command,
+                    "scripts": names,
+                    "raw": raw,
+                }
+
+            if raw and not str(raw).startswith("-"):
+                best_raw = raw
+                best_command = command
+
+        return {
+            "command": best_command or "No working list command found",
+            "scripts": [],
+            "raw": best_raw,
+        }
+
     def EnableRobot(self, load=0.0, centerX=0.0, centerY=0.0, centerZ=0.0, isCheck=-1,):
         """
             可选参数
@@ -2787,7 +2850,7 @@ class DobotApiDashboard(DobotApi):
     
     def GetExportStatus(self):
         """
-        获取日志导出的状态。
+        获取日志导出的状态。Get the log export status.
         其中status表示日志导出状态。
         0：未开始导出
         1：导出中
